@@ -1,0 +1,16 @@
+# Dados brutos e processados (grandes demais para o git)
+dados/
+dados_parquet/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.code-workspace
