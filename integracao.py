@@ -1,3 +1,8 @@
+# integracao.py — Etapa 2 do pipeline: integração de fontes.
+# Junta os dados do CAGED com a tabela de municípios do IBGE
+# (para ter nome do município, UF e região), traduz os códigos
+# numéricos em textos legíveis e gera o arquivo caged_integrado.parquet.
+
 import pandas as pd
 import requests
 import pyarrow.parquet as pq
@@ -8,8 +13,9 @@ PASTA_SAIDA   = Path(__file__).parent / "dados"
 PASTA_SAIDA.mkdir(exist_ok=True)
 
 SAIDA_FINAL   = PASTA_SAIDA / "caged_integrado.parquet"
-TAMANHO_LOTE  = 10
+TAMANHO_LOTE  = 10  # quantos arquivos parquet são processados por vez
 
+# ---- Tabela de municípios do IBGE (segunda fonte de dados) ----
 print("Buscando tabela de municípios do IBGE...")
 municipios_path = PASTA_SAIDA / "municipios_ibge.parquet"
 
@@ -17,6 +23,8 @@ if municipios_path.exists():
     print("  Já existe, carregando do disco...")
     municipios = pd.read_parquet(municipios_path)
 else:
+    # Consulta a API pública do IBGE e monta um DataFrame
+    # com código, nome, UF e região de cada município
     print("  Baixando da API do IBGE...")
     url = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
     resp = requests.get(url, timeout=30)
@@ -33,12 +41,14 @@ else:
     municipios.to_parquet(municipios_path, index=False)
     print(f"  Salvo: {municipios_path}")
 
+# Garante que o código do município tenha sempre 6 dígitos (chave do merge)
 municipios["cod_municipio"] = municipios["cod_municipio"].astype(str).str.zfill(6)
 print(f"  {len(municipios):,} municípios carregados")
 
 arquivos = sorted(PASTA_PARQUET.glob("CAGEDMOV*.parquet"))
 print(f"\nProcessando {len(arquivos)} arquivos em lotes de {TAMANHO_LOTE}...")
 
+# Dicionários que traduzem os códigos do CAGED para textos legíveis
 MAP_SEXO  = {"1": "Masculino", "3": "Feminino", "9": "Não identificado"}
 MAP_RACA  = {"1": "Branca", "2": "Preta", "3": "Parda",
              "6": "Amarela", "7": "Indígena", "9": "Não identificado"}
@@ -60,9 +70,12 @@ MAP_SECAO = {
     "U": "Organismos internacionais",
 }
 
+# Recebe um lote de DataFrames e aplica todo o tratamento:
+# converte datas, traduz códigos e faz o merge com os municípios do IBGE
 def tratar_lote(dfs_lote, municipios):
     df = pd.concat(dfs_lote, ignore_index=True)
 
+    # Converte o campo AAAAMM em data e extrai ano e mês
     df["ano_mes"] = pd.to_datetime(
         df["ano_mes"].astype(str).str.strip(),
         format="%Y%m", errors="coerce"
@@ -70,12 +83,14 @@ def tratar_lote(dfs_lote, municipios):
     df["ano"] = df["ano_mes"].dt.year
     df["mes"] = df["ano_mes"].dt.month
 
+    # tipo_mov: 1 = admissão, -1 = desligamento → vira a coluna "saldo"
     df["tipo_mov"] = pd.to_numeric(df["tipo_mov"], errors="coerce")
     df["saldo"]    = df["tipo_mov"]
 
     if "salario" in df.columns:
         df["salario"] = pd.to_numeric(df["salario"], errors="coerce")
 
+    # Aplica os dicionários de tradução nas colunas categóricas
     if "sexo" in df.columns:
         df["sexo"] = df["sexo"].astype(str).map(MAP_SEXO).fillna("Não identificado")
     if "raca_cor" in df.columns:
@@ -85,6 +100,7 @@ def tratar_lote(dfs_lote, municipios):
 
     df["setor"] = df["secao_cnae"].astype(str).str.upper().str.strip().map(MAP_SECAO).fillna("Não informado")
 
+    # Merge com a tabela do IBGE pelo código do município (6 dígitos)
     df["cod_municipio_6"] = df["cod_municipio"].astype(str).str[:6].str.zfill(6)
     df = df.merge(municipios, left_on="cod_municipio_6", right_on="cod_municipio",
                   how="left", suffixes=("", "_ibge"))
@@ -92,6 +108,8 @@ def tratar_lote(dfs_lote, municipios):
 
     return df
 
+# ---- Processamento em lotes ----
+# Divide os arquivos em grupos de 10 para não estourar a memória
 lotes = [arquivos[i:i+TAMANHO_LOTE] for i in range(0, len(arquivos), TAMANHO_LOTE)]
 total_registros = 0
 parquets_lote = []
@@ -119,6 +137,7 @@ print(f"\nTodos os lotes processados: {total_registros:,} registros no total")
 
 print("\nCombinando lotes no arquivo final (streaming)...")
 
+# Junta todos os lotes em um único parquet, escrevendo aos poucos
 writer = None
 for p in parquets_lote:
     table = pq.read_table(p)

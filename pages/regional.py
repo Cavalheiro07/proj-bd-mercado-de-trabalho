@@ -1,18 +1,25 @@
+# pages/regional.py — Página de análise regional (interativa).
+# Tem filtros de período, região e estado. Os gráficos (mapa,
+# ranking de UFs e top 10 municípios) são atualizados por um
+# callback sempre que o usuário mexe nos filtros.
+
 import dash
 from dash import dcc, html, callback, Input, Output
 import plotly.graph_objects as go
 import pandas as pd
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # permite importar o theme.py da raiz
 from theme import *
 
 dash.register_page(__name__, path="/regional", name="Regional")
 
+# Tabelas agregadas usadas nesta página
 DADOS = Path(__file__).parent.parent / "dados"
 df_uf  = pd.read_parquet(DADOS/"agg_saldo_uf.parquet")
 df_mun = pd.read_parquet(DADOS/"agg_municipios.parquet")
 
+# Quais UFs pertencem a cada região (usado no filtro de região)
 REGIOES_UF = {
     "Norte":       ["AC","AM","AP","PA","RO","RR","TO"],
     "Nordeste":    ["AL","BA","CE","MA","PB","PE","PI","RN","SE"],
@@ -26,6 +33,8 @@ LABEL_STYLE = {"fontFamily":"DM Sans","fontSize":"0.85rem","fontWeight":"600","c
                "letterSpacing":"0.08em","textTransform":"uppercase","display":"block","marginBottom":"8px"}
 DROP_STYLE  = {"fontFamily":"DM Sans","fontSize":"0.9rem"}
 
+# Layout da página: título, barra de filtros e os cards dos gráficos
+# (os gráficos começam vazios — quem preenche é o callback lá embaixo)
 layout = html.Div([html.Div([
     html.Div([
         html.H1("Análise Regional", style={
@@ -85,6 +94,8 @@ layout = html.Div([html.Div([
 ], style={"maxWidth":"1400px","margin":"0 auto","padding":"0 36px"})
 ], style={"background":BG,"minHeight":"100vh"})
 
+# Callback: roda toda vez que o usuário muda um filtro ou clica no mapa.
+# Recebe os valores dos filtros (Inputs) e devolve os gráficos (Outputs).
 @callback(
     Output("r-mapa","figure"), Output("r-ranking-uf","figure"),
     Output("r-top-mun-pos","figure"), Output("r-top-mun-neg","figure"),
@@ -94,15 +105,18 @@ layout = html.Div([html.Div([
 )
 def atualizar(anos, regioes, click, uf_sel):
     ano_min, ano_max = anos
+    # Se o usuário clicou em um estado no mapa, usa ele como filtro
     if click and click.get("points"):
         uf_sel = click["points"][0].get("location", uf_sel)
 
+    # Filtra os dados de UF pelo período e pelas regiões escolhidas
     du = df_uf[(df_uf["ano"]>=ano_min)&(df_uf["ano"]<=ano_max)]
     if regioes:
         ufs_f = [u for r in regioes for u in REGIOES_UF.get(r,[])]
         du = du[du["sigla_uf"].isin(ufs_f)]
     du_tot = du.groupby("sigla_uf")["saldo"].sum().reset_index()
 
+    # Mapa do Brasil colorido pelo saldo de cada estado
     fig_mapa = go.Figure(go.Choropleth(
         geojson="https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson",
         locations=du_tot["sigla_uf"], z=du_tot["saldo"],
@@ -117,6 +131,7 @@ def atualizar(anos, regioes, click, uf_sel):
     fig_mapa.update_layout(paper_bgcolor="white", margin=dict(l=0,r=70,t=0,b=0), height=500,
         font=dict(family="DM Sans", size=14))
 
+    # Ranking dos estados ordenado pelo saldo
     du_rank = du_tot.sort_values("saldo")
     fig_rank = go.Figure(go.Bar(
         x=du_rank["saldo"], y=du_rank["sigla_uf"], orientation="h",
@@ -128,6 +143,7 @@ def atualizar(anos, regioes, click, uf_sel):
         yaxis=dict(tickfont=dict(size=13))
     )
 
+    # Filtra os municípios pelos mesmos critérios (período, UF ou região)
     dm = df_mun[(df_mun["ano"]>=ano_min)&(df_mun["ano"]<=ano_max)]
     dm = dm.groupby(["nome_municipio","sigla_uf","regiao"])["saldo"].sum().reset_index()
     if uf_sel:
@@ -136,6 +152,7 @@ def atualizar(anos, regioes, click, uf_sel):
         ufs_f = [u for r in regioes for u in REGIOES_UF.get(r,[])]
         dm = dm[dm["sigla_uf"].isin(ufs_f)]
 
+    # Função auxiliar: gera o gráfico de barras dos municípios
     def bar_mun(df, cor):
         fig = go.Figure(go.Bar(
             x=df["saldo"], y=df["nome_municipio"]+" ("+df["sigla_uf"]+")",
@@ -148,6 +165,7 @@ def atualizar(anos, regioes, click, uf_sel):
         )
         return fig
 
+    # Devolve os 4 gráficos: mapa, ranking, top 10 positivos e negativos
     return (fig_mapa, fig_rank,
             bar_mun(dm.nlargest(10,"saldo").sort_values("saldo"), VC),
             bar_mun(dm.nsmallest(10,"saldo").sort_values("saldo",ascending=False), VR),

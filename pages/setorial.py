@@ -1,14 +1,19 @@
+# pages/setorial.py — Página de análise por setor econômico (interativa).
+# Tem filtros de período e de setores. Mostra a evolução anual de cada
+# setor, o crescimento % entre 2020 e 2026 e um heatmap de sazonalidade.
+
 import dash
 from dash import dcc, html, callback, Input, Output
 import plotly.graph_objects as go
 import pandas as pd
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # permite importar o theme.py da raiz
 from theme import *
 
 dash.register_page(__name__, path="/setorial", name="Setorial")
 
+# Tabelas agregadas usadas nesta página
 DADOS = Path(__file__).parent.parent / "dados"
 df_setor_ano = pd.read_parquet(DADOS/"agg_setor_ano.parquet")
 df_cresc     = pd.read_parquet(DADOS/"agg_crescimento_setor.parquet")
@@ -22,10 +27,13 @@ MESES   = {1:"Jan",2:"Fev",3:"Mar",4:"Abr",5:"Mai",6:"Jun",
 LABEL_STYLE = {"fontFamily":"DM Sans","fontSize":"0.85rem","fontWeight":"600","color":TL,
                "letterSpacing":"0.08em","textTransform":"uppercase","display":"block","marginBottom":"8px"}
 
+# Paleta de cores para diferenciar as linhas de cada setor no gráfico
 CORES_LINHA = [VC,"#2980B9","#8E44AD","#E67E22","#16A085",
                VR,"#F39C12","#1ABC9C","#D35400","#7F8C8D",
                "#2C3E50","#27AE60","#C0392B","#3498DB"]
 
+# Layout da página: título, filtros e cards dos gráficos
+# (os gráficos são preenchidos pelo callback abaixo)
 layout = html.Div([html.Div([
     html.Div([
         html.H1("Análise Setorial", style={
@@ -73,6 +81,7 @@ layout = html.Div([html.Div([
 ], style={"maxWidth":"1400px","margin":"0 auto","padding":"0 36px"})
 ], style={"background":BG,"minHeight":"100vh"})
 
+# Callback: refaz os 3 gráficos sempre que o usuário muda os filtros
 @callback(
     Output("s-evolucao","figure"),
     Output("s-crescimento","figure"),
@@ -81,11 +90,13 @@ layout = html.Div([html.Div([
     Input("s-setor","value"),
 )
 def atualizar(anos, setores):
+    # Filtra pelo período e pelos setores escolhidos
     ano_min, ano_max = anos
     ds = df_setor_ano[(df_setor_ano["ano"]>=ano_min)&(df_setor_ano["ano"]<=ano_max)]
     if setores:
         ds = ds[ds["setor"].isin(setores)]
 
+    # Gráfico de linhas: evolução anual do saldo de cada setor
     fig_ev = go.Figure()
     setores_plot = setores if setores else list(ds["setor"].unique())
     for idx, s in enumerate(setores_plot):
@@ -104,6 +115,7 @@ def atualizar(anos, setores):
         hovermode="x unified"
     )
 
+    # Barras horizontais: crescimento % de cada setor (2020 vs 2026)
     dc = df_cresc.copy()
     if setores: dc = dc[dc["setor"].isin(setores)]
     dc = dc.sort_values("variacao_pct")
@@ -120,6 +132,7 @@ def atualizar(anos, setores):
         margin=dict(l=10,r=80,t=10,b=10)
     )
 
+    # Heatmap mês × ano: mostra a sazonalidade do emprego formal
     dm = df_mes_ano[(df_mes_ano["ano"]>=ano_min)&(df_mes_ano["ano"]<=ano_max)].copy()
     dm["mes_nome"] = dm["mes"].map(MESES)
     pivot = dm.pivot_table(index="ano", columns="mes_nome", values="saldo", aggfunc="sum")

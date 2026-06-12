@@ -1,3 +1,8 @@
+# gerar_agregacoes.py — Etapa 5 do pipeline: agregações extras.
+# Lê o arquivo transformado (gigante) e gera tabelas resumidas
+# por município, por setor/ano e por mês/ano. O dashboard usa
+# essas tabelas pequenas para carregar rápido.
+
 import pandas as pd
 import pyarrow.parquet as pq
 from pathlib import Path
@@ -8,10 +13,12 @@ ENTRADA     = PASTA_DADOS / "caged_transformado.parquet"
 print("Gerando agregações extras para os dashboards...")
 parquet_file = pq.ParquetFile(ENTRADA)
 
+# Listas que acumulam os resultados parciais de cada lote
 agg_municipio  = []
 agg_setor_ano  = []
 agg_mes_ano    = []
 
+# Lê o arquivo em lotes e soma o saldo nos três agrupamentos
 for i, batch in enumerate(parquet_file.iter_batches(batch_size=5_000_000)):
     df = batch.to_pandas()
 
@@ -32,16 +39,20 @@ for i, batch in enumerate(parquet_file.iter_batches(batch_size=5_000_000)):
 
 print("Consolidando e salvando...")
 
+# Junta os resultados parciais e agrupa de novo para ter o total final
+# Saldo por município/ano (usado na página Regional)
 df_mun = pd.concat(agg_municipio).groupby(
     ["ano", "nome_municipio", "sigla_uf", "regiao"]
 )["saldo"].sum().reset_index()
 df_mun.to_parquet(PASTA_DADOS / "agg_municipios.parquet", index=False)
 print(f"  agg_municipios.parquet — {len(df_mun):,} municípios")
 
+# Saldo por setor e ano (usado na página Setorial)
 df_setor_ano = pd.concat(agg_setor_ano).groupby(
     ["ano", "setor"]
 )["saldo"].sum().reset_index()
 
+# Calcula a variação % de cada setor comparando 2020 com 2026
 df_2020 = df_setor_ano[df_setor_ano["ano"] == 2020][["setor","saldo"]].rename(columns={"saldo":"saldo_2020"})
 df_2026 = df_setor_ano[df_setor_ano["ano"] == 2026][["setor","saldo"]].rename(columns={"saldo":"saldo_2026"})
 df_cresc = df_2020.merge(df_2026, on="setor", how="outer").fillna(0)
@@ -53,6 +64,7 @@ print(f"  agg_crescimento_setor.parquet — {len(df_cresc)} setores")
 df_setor_ano.to_parquet(PASTA_DADOS / "agg_setor_ano.parquet", index=False)
 print(f"  agg_setor_ano.parquet — {len(df_setor_ano)} linhas")
 
+# Saldo por mês e ano (usado no heatmap de sazonalidade)
 df_mes_ano = pd.concat(agg_mes_ano).groupby(
     ["ano", "mes"]
 )["saldo"].sum().reset_index()

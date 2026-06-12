@@ -1,3 +1,9 @@
+# transformacao.py — Etapa 4 do pipeline: transformação dos dados.
+# Cria variáveis novas a partir das existentes: códigos numéricos
+# para as categorias, período sazonal, fase da pandemia, e demonstra
+# a normalização Min-Max. No final gera tabelas agregadas que o
+# dashboard usa (saldo mensal, por UF e por fase).
+
 import pandas as pd
 import numpy as np
 import pyarrow.parquet as pq
@@ -16,6 +22,8 @@ print(f"Total de registros: {total_rows:,}")
 
 print("\nColetando amostra para calibrar transformações...")
 
+# Pega uma amostra de 100 mil registros do primeiro lote
+# só para demonstrar as transformações sem ler o arquivo inteiro
 amostra_lotes = []
 for i, batch in enumerate(parquet_file.iter_batches(batch_size=5_000_000)):
     if i == 0:
@@ -31,6 +39,8 @@ print(f"\n{'='*60}")
 print("ETAPA 1 — Codificação de variáveis categóricas")
 print(f"{'='*60}")
 
+# Escolaridade tem ordem natural (analfabeto < ... < doutorado),
+# então recebe códigos crescentes de 0 a 8
 ORDEM_ESCOLARIDADE = {
     "Analfabeto": 0,
     "Fundamental incompleto": 1,
@@ -47,6 +57,7 @@ print("\n  Escolaridade → LabelEncoder (ordinal)")
 print("  Justificativa: variável ordinal — ordem entre categorias é significativa")
 print("  Analfabeto(0) < Fund.Inc.(1) < ... < Doutorado(8)")
 
+# Região não tem ordem — o código é só um identificador numérico
 MAP_REGIAO_COD = {
     "Norte": 1, "Nordeste": 2, "Sudeste": 3, "Sul": 4, "Centro-Oeste": 5
 }
@@ -60,6 +71,7 @@ print(f"\n{'='*60}")
 print("ETAPA 2 — Discretização por período sazonal")
 print(f"{'='*60}")
 
+# Agrupa os meses em 4 períodos de 3 meses (discretização)
 MAP_PERIODO = {
     1: "Jan-Mar", 2: "Jan-Mar", 3: "Jan-Mar",
     4: "Abr-Jun", 5: "Abr-Jun", 6: "Abr-Jun",
@@ -79,6 +91,8 @@ print("  Justificativa: permite comparação entre UFs de tamanhos")
 print("  populacionais muito diferentes (SP vs AC, por exemplo)")
 print("  Fórmula: x' = (x - x_min) / (x_max - x_min)")
 
+# Demonstração da normalização Min-Max: leva o saldo de cada UF
+# para a escala de 0 a 1, permitindo comparar estados de tamanhos diferentes
 saldo_uf_amostra = amostra.groupby("sigla_uf")["saldo"].sum().reset_index()
 scaler = MinMaxScaler()
 saldo_uf_amostra["saldo_normalizado"] = scaler.fit_transform(
@@ -115,12 +129,15 @@ print(f"\n{'='*60}")
 print("Aplicando transformações em streaming...")
 print(f"{'='*60}")
 
+# Aplica todas as transformações no arquivo inteiro,
+# lendo e escrevendo em lotes (streaming) para economizar memória
 writer = None
 total_saida = 0
 
 for i, batch in enumerate(parquet_file.iter_batches(batch_size=5_000_000)):
     df = batch.to_pandas()
 
+    # Cria as colunas codificadas (números no lugar de textos)
     if "escolaridade" in df.columns:
         df["escolaridade_cod"] = df["escolaridade"].map(ORDEM_ESCOLARIDADE).fillna(-1).astype(int)
 
@@ -133,6 +150,8 @@ for i, batch in enumerate(parquet_file.iter_batches(batch_size=5_000_000)):
     if "mes" in df.columns:
         df["periodo_sazonal"] = df["mes"].map(MAP_PERIODO).fillna("Não informado")
 
+    # Classifica cada registro em uma fase histórica da pandemia
+    # de acordo com o ano e o mês
     if "ano" in df.columns and "mes" in df.columns:
         ano = df["ano"]
         mes = df["mes"]
@@ -154,6 +173,7 @@ for i, batch in enumerate(parquet_file.iter_batches(batch_size=5_000_000)):
             default="Expansão pós-pandemia",
         )
 
+    # Coluna AAAAMM numérica, útil para ordenar a linha do tempo
     if "ano" in df.columns and "mes" in df.columns:
         df["ano_mes_int"] = df["ano"] * 100 + df["mes"]
 
@@ -180,6 +200,8 @@ print(f"{'='*60}")
 print("  Lendo arquivo transformado para agregar...")
 parquet_trans = pq.ParquetFile(SAIDA)
 
+# Soma o saldo agrupado por mês, por UF e por fase da pandemia.
+# São essas tabelas pequenas que o dashboard carrega (não o arquivo gigante)
 agg_mensal    = []
 agg_uf        = []
 agg_fase      = []
@@ -203,6 +225,7 @@ print("  Salvando tabelas agregadas...")
 
 df_mensal = pd.concat(agg_mensal).groupby(["ano", "mes", "ano_mes"])["saldo"].sum().reset_index()
 df_mensal = df_mensal.sort_values("ano_mes")
+# Média móvel de 3 meses para suavizar a curva no gráfico
 df_mensal["media_movel_3m"] = df_mensal["saldo"].rolling(3, center=True).mean()
 df_mensal.to_parquet(PASTA_DADOS / "agg_saldo_mensal.parquet", index=False)
 print(f"  agg_saldo_mensal.parquet — {len(df_mensal):,} linhas")

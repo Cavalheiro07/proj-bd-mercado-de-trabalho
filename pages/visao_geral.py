@@ -1,14 +1,20 @@
+# pages/visao_geral.py — Página inicial do dashboard.
+# Mostra o panorama geral: KPIs, saldo mensal, mapa do Brasil,
+# saldo por fase da pandemia e por setor econômico.
+
 import dash
 from dash import dcc, html
 import plotly.graph_objects as go
 import pandas as pd
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # permite importar o theme.py da raiz
 from theme import *
 
+# Registra esta página na rota "/" (página inicial)
 dash.register_page(__name__, path="/", name="Visão Geral")
 
+# Carrega as tabelas agregadas (pequenas) geradas pelo pipeline
 DADOS = Path(__file__).parent.parent / "dados"
 df_mensal = pd.read_parquet(DADOS/"agg_saldo_mensal.parquet").sort_values("ano_mes")
 df_uf     = pd.read_parquet(DADOS/"agg_saldo_uf.parquet")
@@ -20,12 +26,15 @@ MESES_NOME = {1:"Jan",2:"Fev",3:"Mar",4:"Abr",5:"Mai",6:"Jun",
 ORDEM_FASES = ["Pandemia aguda","Pandemia inicial","Pandemia tardia",
                "Recuperação","Normalização","Expansão pós-pandemia"]
 
+# Calcula os números dos KPIs (cartões do topo da página)
 saldo_total = int(df_mensal["saldo"].sum())
 saldo_2020  = int(df_mensal[df_mensal["ano"]==2020]["saldo"].sum())
 saldo_2026  = int(df_mensal[df_mensal["ano"]==2026]["saldo"].sum())
 melhor = df_mensal.loc[df_mensal["saldo"].idxmax()]
 pior   = df_mensal.loc[df_mensal["saldo"].idxmin()]
 
+# Gráfico de barras do saldo mensal: verde quando positivo,
+# vermelho quando negativo, com linha de média móvel por cima
 fig_tend = go.Figure()
 fig_tend.add_bar(
     x=df_mensal["ano_mes"].astype(str), y=df_mensal["saldo"],
@@ -51,6 +60,7 @@ apply_layout(fig_tend, height=340,
     hovermode="x unified"
 )
 
+# Mapa do Brasil (choropleth): cada estado pintado conforme o saldo
 df_uf_tot = df_uf.groupby("sigla_uf")["saldo"].sum().reset_index()
 fig_mapa = go.Figure(go.Choropleth(
     geojson="https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson",
@@ -66,6 +76,7 @@ fig_mapa.update_geos(fitbounds="locations", visible=False, bgcolor="rgba(0,0,0,0
 fig_mapa.update_layout(paper_bgcolor="white", margin=dict(l=0,r=70,t=0,b=0), height=420,
     font=dict(family="DM Sans", size=14))
 
+# Barras horizontais com o saldo acumulado de cada setor econômico
 df_s = df_setor.groupby("setor")["saldo"].sum().reset_index().sort_values("saldo")
 fig_set = go.Figure(go.Bar(
     x=df_s["saldo"], y=df_s["setor"], orientation="h",
@@ -77,6 +88,7 @@ apply_layout(fig_set, height=460,
     yaxis=dict(tickfont=dict(size=13))
 )
 
+# Saldo total em cada fase histórica (pandemia → expansão)
 df_f = df_fase.groupby("fase_pandemia")["saldo"].sum().reset_index()
 df_f["fase_pandemia"] = pd.Categorical(df_f["fase_pandemia"], categories=ORDEM_FASES, ordered=True)
 df_f = df_f.sort_values("fase_pandemia")
@@ -90,6 +102,7 @@ apply_layout(fig_fase, height=300,
     yaxis=dict(tickformat=",.0f", tickfont=dict(size=FONT_TICK), gridcolor=BGE)
 )
 
+# Monta um card branco com título, descrição e um gráfico dentro
 def card(titulo, desc, fig, height=None):
     return html.Div([
         html.H3(titulo, style=card_title_style()),
@@ -98,6 +111,7 @@ def card(titulo, desc, fig, height=None):
                   style={"height":height} if height else {})
     ], style=card_style())
 
+# Layout da página: título, fileira de KPIs e os cards com os gráficos
 layout = html.Div([html.Div([
     html.Div([
         html.H1("Mercado de Trabalho Formal no Brasil", style={

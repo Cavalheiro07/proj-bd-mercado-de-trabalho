@@ -1,7 +1,14 @@
+# app.py — Arquivo principal do dashboard.
+# Cria a aplicação Dash, monta a barra de navegação no topo
+# e carrega automaticamente as páginas da pasta pages/.
+
 import dash
 from dash import dcc, html
 import dash_bootstrap_components as dbc
 
+# Cria a aplicação Dash.
+# use_pages=True ativa o sistema de multipáginas (pasta pages/)
+# external_stylesheets carrega o Bootstrap e as fontes do Google
 app = dash.Dash(
     __name__,
     use_pages=True,
@@ -12,6 +19,7 @@ app = dash.Dash(
     suppress_callback_exceptions=True
 )
 
+# Estilo visual dos links do menu de navegação
 NAV_LINK = {
     "color": "#8FB89A", "textDecoration": "none",
     "fontFamily": "DM Sans", "fontSize": "0.82rem",
@@ -21,6 +29,8 @@ NAV_LINK = {
     "transition": "color 0.2s"
 }
 
+# Layout geral da aplicação: barra de navegação fixa no topo
+# + área onde o conteúdo de cada página é renderizado
 app.layout = html.Div([
     html.Nav([
         html.Div([
@@ -35,6 +45,7 @@ app.layout = html.Div([
                 }),
             ], style={"display": "flex", "alignItems": "baseline"}),
 
+            # Links que levam para cada página do dashboard
             html.Div([
                 dcc.Link("Visão Geral",  href="/",           style={**NAV_LINK, "marginRight": "28px"}),
                 dcc.Link("Regional",     href="/regional",    style={**NAV_LINK, "marginRight": "28px"}),
@@ -50,9 +61,11 @@ app.layout = html.Div([
         "background": "#0D2B1A", "borderBottom": "1px solid #1A3D24",
         "position": "sticky", "top": "0", "zIndex": "100"
     }),
+    # page_container é onde o Dash insere o conteúdo da página atual
     html.Div(dash.page_container,
              style={"background": "#F5F2EC", "minHeight": "calc(100vh - 58px)"})
 ], style={"background": "#F5F2EC", "margin": "0"})
 
+# Inicia o servidor local na porta 8050 (http://localhost:8050)
 if __name__ == "__main__":
     app.run(debug=True, port=8050)

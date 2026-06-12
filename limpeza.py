@@ -1,3 +1,8 @@
+# limpeza.py — Etapa 3 do pipeline: limpeza dos dados.
+# Analisa valores ausentes, remove registros inválidos (sem UF,
+# UF errada ou movimentação diferente de admissão/desligamento)
+# e padroniza textos. Gera o arquivo caged_limpo.parquet.
+
 import pandas as pd
 import pyarrow.parquet as pq
 import pyarrow as pa
@@ -7,6 +12,7 @@ PASTA_DADOS = Path(__file__).parent / "dados"
 ENTRADA     = PASTA_DADOS / "caged_integrado.parquet"
 SAIDA       = PASTA_DADOS / "caged_limpo.parquet"
 
+# Lista oficial das 27 UFs — qualquer coisa fora disso é descartada
 UFS_VALIDAS = {
     "AC","AL","AM","AP","BA","CE","DF","ES","GO","MA","MG","MS","MT",
     "PA","PB","PE","PI","PR","RJ","RN","RO","RR","RS","SC","SE","SP","TO"
@@ -19,6 +25,8 @@ print(f"Total de registros: {total_rows:,}")
 
 print("\nAnalisando qualidade dos dados (passagem 1/2)...")
 
+# Primeira passagem: só conta os valores nulos de cada coluna,
+# lendo o arquivo em lotes de 5 milhões de linhas
 nulos_total = {}
 registros_analisados = 0
 
@@ -58,6 +66,8 @@ print(f"\n{'='*60}")
 print("Aplicando limpeza (passagem 2/2)...")
 print(f"{'='*60}")
 
+# Segunda passagem: aplica os filtros e padronizações
+# e escreve o resultado limpo em streaming
 writer = None
 stats  = {
     "sem_uf": 0, "uf_invalida": 0, "mov_invalida": 0,
@@ -68,21 +78,26 @@ for i, batch in enumerate(parquet_file.iter_batches(batch_size=5_000_000)):
     df = batch.to_pandas()
     stats["total_entrada"] += len(df)
 
+    # Usa a sigla de UF vinda do IBGE (mais confiável que a original)
     if "sigla_uf_ibge" in df.columns:
         df["sigla_uf"] = df["sigla_uf_ibge"]
 
+    # Remove registros sem UF
     antes = len(df)
     df = df[df["sigla_uf"].notna() & (df["sigla_uf"] != "")]
     stats["sem_uf"] += antes - len(df)
 
+    # Remove registros com UF que não existe
     antes = len(df)
     df = df[df["sigla_uf"].isin(UFS_VALIDAS)]
     stats["uf_invalida"] += antes - len(df)
 
+    # Mantém só admissão (1) e desligamento (-1)
     antes = len(df)
     df = df[df["tipo_mov"].isin([1, -1])]
     stats["mov_invalida"] += antes - len(df)
 
+    # Padroniza os textos (maiúsculas, espaços, title case)
     df["sigla_uf"] = df["sigla_uf"].str.strip().str.upper()
     if "nome_municipio" in df.columns:
         df["nome_municipio"] = df["nome_municipio"].str.strip().str.title()
@@ -91,6 +106,7 @@ for i, batch in enumerate(parquet_file.iter_batches(batch_size=5_000_000)):
     if "setor" in df.columns:
         df["setor"] = df["setor"].str.strip()
 
+    # Cria colunas novas: rótulo da movimentação e trimestre
     df["tipo_mov_label"] = df["tipo_mov"].map({1: "Admissão", -1: "Desligamento"})
     if "mes" in df.columns:
         df["trimestre"]     = df["mes"].apply(
@@ -116,6 +132,7 @@ if writer:
 
 print(f"  Concluído — saída final: {stats['total_saida']:,}")
 
+# Relatório final: quantos registros entraram, saíram e foram removidos
 print(f"\n{'='*60}")
 print("RELATÓRIO FINAL DE LIMPEZA")
 print(f"{'='*60}")

@@ -1,14 +1,20 @@
+# pages/pandemia.py — Página focada no impacto da pandemia.
+# Mostra o "zoom" no período 2019–2022, o impacto por setor em cada
+# fase histórica (heatmap), a comparação regional e a recuperação
+# setorial entre 2020, 2021 e 2022.
+
 import dash
 from dash import dcc, html
 import plotly.graph_objects as go
 import pandas as pd
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # permite importar o theme.py da raiz
 from theme import *
 
 dash.register_page(__name__, path="/pandemia", name="Pandemia")
 
+# Tabelas agregadas usadas nesta página
 DADOS = Path(__file__).parent.parent / "dados"
 df_mensal    = pd.read_parquet(DADOS/"agg_saldo_mensal.parquet").sort_values("ano_mes")
 df_fase      = pd.read_parquet(DADOS/"agg_saldo_fase.parquet")
@@ -27,11 +33,14 @@ CORES_FASES = {
 }
 ORDEM_FASES_REG = ["Pandemia (2020)", "Pandemia tardia", "Recuperação", "Normalização", "Expansão pós-pandemia"]
 
+# Números dos KPIs: saldo durante e depois da pandemia, melhor e pior mês
 saldo_pandemia = int(df_mensal[df_mensal["ano"].isin([2020,2021])]["saldo"].sum())
 saldo_pos_pan  = int(df_mensal[df_mensal["ano"].isin([2022,2023,2024,2025,2026])]["saldo"].sum())
 melhor = df_mensal.loc[df_mensal["saldo"].idxmax()]
 pior   = df_mensal.loc[df_mensal["saldo"].idxmin()]
 
+# Gráfico "zoom": saldo mensal só do período 2019–2022,
+# com uma seta destacando o pior mês (abril/2020)
 df_pan = df_mensal[df_mensal["ano"].isin([2019,2020,2021,2022])].copy()
 fig_zoom = go.Figure()
 fig_zoom.add_bar(
@@ -51,6 +60,7 @@ apply_layout(fig_zoom, height=340,
     yaxis=dict(tickformat=",.0f", tickfont=dict(size=FONT_TICK), gridcolor=BGE)
 )
 
+# Heatmap setor × fase: vermelho = perdeu empregos, verde = ganhou
 pivot_fase = df_fase.pivot_table(index="setor", columns="fase_pandemia", values="saldo", aggfunc="sum")
 cols_ord = [f for f in ORDEM_FASES if f in pivot_fase.columns]
 pivot_fase = pivot_fase[cols_ord]
@@ -67,6 +77,7 @@ fig_heat.update_layout(paper_bgcolor="white", font=dict(family="DM Sans",size=14
     yaxis=dict(tickfont=dict(size=13))
 )
 
+# Barras agrupadas comparando cada setor em 2020, 2021 e 2022
 df_comp = df_setor_ano[df_setor_ano["ano"].isin([2020,2021,2022])].copy()
 CORES_ANO = {2020:VR, 2021:AM, 2022:VC}
 fig_comp = go.Figure()
@@ -83,6 +94,8 @@ apply_layout(fig_comp, height=520, barmode="group",
     legend=dict(orientation="h", y=1.04, x=0, font=dict(size=14))
 )
 
+# Saldo por região em cada fase: agrupa as UFs por região
+# e classifica cada ano em uma fase histórica
 REGIOES_UF = {
     "Norte":["AC","AM","AP","PA","RO","RR","TO"],
     "Nordeste":["AL","BA","CE","MA","PB","PE","PI","RN","SE"],
@@ -115,6 +128,7 @@ apply_layout(fig_reg, height=360, barmode="group",
     legend=dict(orientation="h", y=-0.28, x=0, font=dict(size=12))
 )
 
+# Layout da página: título, KPIs e os cards com os gráficos
 layout = html.Div([html.Div([
     html.Div([
         html.H1("Pandemia & Recuperação", style={

@@ -1,7 +1,14 @@
+# theme.py — Identidade visual do dashboard.
+# Centraliza cores, tamanhos de fonte e estilos reutilizados
+# por todas as páginas, para manter o visual consistente.
+
+# Paleta de cores: VD/VM/VC = tons de verde, VR = vermelho (saldo
+# negativo), AM = amarelo, BG = fundo, TX/TL = cores de texto
 VD="#0D2B1A"; VM="#1A5C36"; VC="#4CAF72"
 BG="#F5F2EC"; BGE="#E8E3D8"; TX="#1A1A18"; TL="#6B6B60"
 VR="#C0392B"; AM="#D4A017"
 
+# Tamanhos de fonte padronizados
 FONT_TITLE_PAGE  = "2.6rem"
 FONT_SUBTITLE    = "1.15rem"
 FONT_CARD_TITLE  = "1rem"
@@ -16,6 +23,7 @@ FONT_HOVER       = 14
 FONT_ANNOT       = 13
 BAR_WIDTH        = 0.65
 
+# Configuração base aplicada em todos os gráficos Plotly
 LAYOUT_BASE = dict(
     paper_bgcolor="white",
     plot_bgcolor="white",
@@ -36,11 +44,13 @@ LAYOUT_BASE = dict(
     ),
 )
 
+# Aplica o layout base em um gráfico, permitindo sobrescrever opções
 def apply_layout(fig, height=340, **kwargs):
     layout = {**LAYOUT_BASE, "height": height, **kwargs}
     fig.update_layout(**layout)
     return fig
 
+# Estilos prontos para os títulos, descrições e caixas (cards)
 def card_title_style():
     return {
         "fontFamily":"DM Sans","fontSize":FONT_CARD_TITLE,
@@ -60,6 +70,7 @@ def card_style():
         "borderRadius":"8px","padding":"24px","flex":"1"
     }
 
+# Monta um cartão de indicador (KPI) com título, valor grande e subtítulo
 def kpi(titulo, valor, sub, cor):
     sinal = "+" if valor > 0 else ""
     from dash import html

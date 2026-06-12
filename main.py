@@ -1,9 +1,15 @@
+# main.py — Orquestrador do projeto.
+# Executa as 5 etapas do pipeline na ordem certa (coleta, integração,
+# limpeza, transformação e agregações) e no final abre o dashboard.
+# Cada etapa só roda se o arquivo que ela gera ainda não existir.
+
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 
+# Roda um script Python e interrompe tudo se ele falhar
 def run(label, script):
     print(f"\n{label}")
     result = subprocess.run([sys.executable, str(ROOT / script)], check=False)
@@ -11,7 +17,7 @@ def run(label, script):
         print(f"  ERRO: {script} terminou com código {result.returncode}")
         sys.exit(result.returncode)
 
-# [1/5] Coleta
+# [1/5] Coleta — baixa os dados do FTP se ainda não existirem
 dados_parquet = ROOT / "dados_parquet"
 if not dados_parquet.exists() or not any(dados_parquet.glob("CAGEDMOV*.parquet")):
     run("[1/5] Coletando dados do FTP...", "coleta_caged.py")
@@ -42,5 +48,6 @@ if not (ROOT / "dados" / "agg_municipios.parquet").exists():
 else:
     print("[5/5] Agregações já geradas — pulando.")
 
+# Com todos os dados prontos, sobe o dashboard (app.py)
 print("\nIniciando dashboard...")
 subprocess.run([sys.executable, str(ROOT / "app.py")])

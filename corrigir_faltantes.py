@@ -1,9 +1,15 @@
+# corrigir_faltantes.py — Script auxiliar de reparo da coleta.
+# Compara os parquets já salvos com o que existe no FTP do governo
+# e baixa/processa apenas os meses que ficaram faltando
+# (por queda de conexão, erro etc).
+
 import ftplib
 import py7zr
 import pandas as pd
 from pathlib import Path
 import shutil
 
+# Mesmas configurações da coleta principal (coleta_caged.py)
 FTP_HOST      = "ftp.mtps.gov.br"
 FTP_BASE      = "/pdet/microdados/NOVO CAGED"
 ANOS          = [2020, 2021, 2022, 2023, 2024, 2025, 2026]
@@ -31,9 +37,11 @@ RENAME = {
     "graudeinstruçãotrabalhador":   "escolaridade",
 }
 
+# Monta a lista do que já temos no disco
 existentes = {f.stem for f in PASTA_PARQUET.glob("CAGEDMOV*.parquet")}
 print(f"Parquets existentes: {len(existentes)}")
 
+# Varre o FTP inteiro e anota o que existe lá mas não temos aqui
 print("Verificando FTP para encontrar arquivos faltando...")
 faltando = []
 
@@ -63,6 +71,10 @@ print(f"\nArquivos faltando: {len(faltando)}")
 for ano, mes, _, nome in faltando:
     print(f"  {ano}/{mes:02d} — {nome}")
 
+# As funções abaixo são versões simplificadas das que existem
+# em coleta_caged.py: baixar, extrair, processar e limpar
+
+# Baixa o arquivo .7z do FTP
 def baixar(pasta_ftp, nome):
     destino = PASTA_BRUTOS / nome
     if destino.exists():
@@ -80,6 +92,7 @@ def baixar(pasta_ftp, nome):
     print(f"  Concluído!")
     return destino
 
+# Descompacta o .7z e devolve o .txt de dentro
 def extrair(caminho_7z):
     pasta_ext = PASTA_BRUTOS / caminho_7z.stem
     txts = list(pasta_ext.glob("*.txt")) if pasta_ext.exists() else []
@@ -91,6 +104,7 @@ def extrair(caminho_7z):
     txts = list(pasta_ext.glob("*.txt"))
     return (txts[0], pasta_ext) if txts else (None, pasta_ext)
 
+# Converte o .txt em parquet mantendo só as colunas úteis
 def processar_e_salvar(caminho_txt, nome_parquet):
     saida = PASTA_PARQUET / nome_parquet
     chunks = []
@@ -112,6 +126,7 @@ def processar_e_salvar(caminho_txt, nome_parquet):
     print(f"  Salvo: {nome_parquet} — {len(df):,} registros")
     del df, chunks
 
+# Remove os arquivos temporários (7z e pasta extraída)
 def limpar(caminho_7z, pasta_ext):
     try:
         if pasta_ext and pasta_ext.exists():
@@ -122,6 +137,7 @@ def limpar(caminho_7z, pasta_ext):
     except Exception as e:
         print(f"  Aviso ao limpar: {e}")
 
+# Processa cada arquivo que estava faltando, um por um
 for ano, mes, pasta_ftp, nome in faltando:
     print(f"\nProcessando: {nome}")
     nome_parquet = nome.upper().replace(".7Z", ".parquet")
